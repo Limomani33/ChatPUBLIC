@@ -86,7 +86,8 @@ button:hover {
 </div>
 
 <script>
-const ws = new WebSocket(`ws://${location.hostname}:8765`);
+const protocol = location.protocol === "https:" ? "wss" : "ws";
+const ws = new WebSocket(`${protocol}://${location.host}/ws`);
 let joined = false;
 
 ws.onmessage = e => {
