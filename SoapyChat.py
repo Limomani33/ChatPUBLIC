@@ -1,104 +1,62 @@
-import asyncio
-import websockets
-import json
-import socket
-import http.server
-import socketserver
-import threading
 import os
+import json
+from aiohttp import web
 
-# ======================
-# SETTINGS
-# ======================
-HTTP_PORT = 8000
-WS_PORT = 8765
-
-# ======================
-# LAN IP DETECTION
-# ======================
-def get_lan_ip():
-    s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-    try:
-        s.connect(("8.8.8.8", 80))
-        ip = s.getsockname()[0]
-    except Exception:
-        ip = "127.0.0.1"
-    finally:
-        s.close()
-    return ip
-
-LAN_IP = get_lan_ip()
-
-# ======================
-# SIMPLE HTTP SERVER
-# ======================
-class SilentHandler(http.server.SimpleHTTPRequestHandler):
-    def log_message(self, format, *args):
-        pass
-
-def start_http():
-    os.chdir(os.path.dirname(os.path.abspath(__file__)))
-    with socketserver.TCPServer(("", HTTP_PORT), SilentHandler) as httpd:
-        httpd.serve_forever()
-
-# ======================
-# WEBSOCKET CHAT SERVER
-# ======================
 clients = set()
 users = {}
 messages = []
 
-async def ws_handler(ws):
+# ======================
+# HTTP: serve index.html
+# ======================
+async def index(request):
+    return web.FileResponse("index.html")
+
+# ======================
+# WEBSOCKET
+# ======================
+async def websocket_handler(request):
+    ws = web.WebSocketResponse(max_msg_size=10_000_000)
+    await ws.prepare(request)
+
     clients.add(ws)
 
-    # Send history
-    await ws.send(json.dumps({
+    await ws.send_json({
         "type": "history",
         "messages": messages
-    }))
+    })
 
     try:
-        async for data in ws:
-            msg = json.loads(data)
+        async for msg in ws:
+            if msg.type == web.WSMsgType.TEXT:
+                data = json.loads(msg.data)
 
-            if msg["type"] == "join":
-                users[ws] = msg["name"]
+                if data["type"] == "join":
+                    users[ws] = data["name"]
 
-            elif msg["type"] in ("message", "image"):
-                payload = {
-                    "type": msg["type"],
-                    "name": users.get(ws, "Anonymous"),
-                    "content": msg["content"]
-                }
-                messages.append(payload)
+                elif data["type"] in ("message", "image"):
+                    payload = {
+                        "type": data["type"],
+                        "name": users.get(ws, "Anonymous"),
+                        "content": data["content"]
+                    }
+                    messages.append(payload)
 
-                for client in clients:
-                    await client.send(json.dumps(payload))
+                    for client in clients:
+                        await client.send_json(payload)
 
-    except websockets.ConnectionClosed:
-        pass
     finally:
         clients.remove(ws)
         users.pop(ws, None)
 
+    return ws
+
 # ======================
-# MAIN
+# APP
 # ======================
-async def main():
-    print("\n🫧 Soapy Chat is running!")
-    print("\n👉 Open this link on other devices:\n")
-    print(f"   http://{LAN_IP}:{HTTP_PORT}\n")
+app = web.Application()
+app.router.add_get("/", index)
+app.router.add_get("/ws", websocket_handler)
 
-    async with websockets.serve(
-        ws_handler,
-        "0.0.0.0",
-        WS_PORT,
-        max_size=10_000_000
-    ):
-        await asyncio.Future()
-
-# Start HTTP server in background
-threading.Thread(target=start_http, daemon=True).start()
-
-# Start WebSocket server
-asyncio.run(main())
+port = int(os.environ.get("PORT", 8000))
+web.run_app(app, host="0.0.0.0", port=port)
