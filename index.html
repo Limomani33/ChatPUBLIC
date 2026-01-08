@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="UTF-8">
+<title>Soapy Chat</title>
+
+<style>
+html, body {
+  height: 100%;
+  margin: 0;
+  font-family: system-ui;
+  background:
+    radial-gradient(circle at top, #ff5ad6, #502070, #0b0314);
+  color: white;
+}
+
+#app {
+  width: 720px;
+  height: 85%;
+  margin: auto;
+  margin-top: 40px;
+  background: rgba(8, 8, 20, 0.92);
+  border-radius: 14px;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 0 50px #ff5ad688;
+}
+
+#chat {
+  flex: 1;
+  padding: 12px;
+  overflow-y: auto;
+}
+
+.msg {
+  margin-bottom: 10px;
+}
+
+.name {
+  color: #ff90ff;
+  font-weight: bold;
+}
+
+img {
+  max-width: 280px;
+  border-radius: 10px;
+  margin-top: 6px;
+  box-shadow: 0 0 15px #ff5ad655;
+}
+
+#controls {
+  display: flex;
+  gap: 8px;
+  padding: 10px;
+}
+
+input, button {
+  background: #1a0f2a;
+  border: none;
+  color: white;
+  padding: 8px;
+  border-radius: 6px;
+}
+
+button {
+  background: linear-gradient(135deg, #ff5ad6, #7a3cff);
+}
+
+button:hover {
+  filter: brightness(1.15);
+  cursor: pointer;
+}
+</style>
+</head>
+
+<body>
+<div id="app">
+  <div id="chat"></div>
+
+  <div id="controls">
+    <input id="name" placeholder="Name">
+    <input id="text" placeholder="Message">
+    <input type="file" id="image">
+    <button onclick="send()">Send</button>
+  </div>
+</div>
+
+<script>
+const ws = new WebSocket(`ws://${location.hostname}:8765`);
+let joined = false;
+
+ws.onmessage = e => {
+  const msg = JSON.parse(e.data);
+
+  if (msg.type === "history") {
+    msg.messages.forEach(addMessage);
+  } else {
+    addMessage(msg);
+  }
+};
+
+function addMessage(msg) {
+  const div = document.createElement("div");
+  div.className = "msg";
+
+  if (msg.type === "image") {
+    div.innerHTML = `<span class="name">${msg.name}:</span><br>
+                     <img src="${msg.content}">`;
+  } else {
+    div.innerHTML = `<span class="name">${msg.name}:</span> ${msg.content}`;
+  }
+
+  const chat = document.getElementById("chat");
+  chat.appendChild(div);
+  chat.scrollTop = chat.scrollHeight;
+}
+
+function send() {
+  const name = document.getElementById("name");
+  const text = document.getElementById("text");
+  const image = document.getElementById("image");
+
+  if (!joined) {
+    ws.send(JSON.stringify({
+      type: "join",
+      name: name.value || "Anonymous"
+    }));
+    name.disabled = true;
+    joined = true;
+  }
+
+  if (image.files[0]) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      ws.send(JSON.stringify({
+        type: "image",
+        content: reader.result
+      }));
+    };
+    reader.readAsDataURL(image.files[0]);
+    image.value = "";
+    return;
+  }
+
+  if (text.value.trim()) {
+    ws.send(JSON.stringify({
+      type: "message",
+      content: text.value
+    }));
+    text.value = "";
+  }
+}
+</script>
+</body>
+</html>
