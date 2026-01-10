@@ -3,154 +3,235 @@
 <head>
 <meta charset="UTF-8">
 <title>Soapy Chat</title>
-
 <style>
-html, body {
-  height: 100%;
-  margin: 0;
-  font-family: system-ui;
-  background:
-    radial-gradient(circle at top, #ff5ad6, #502070, #0b0314);
-  color: white;
+html,body {
+  height:100%;
+  margin:0;
+  font-family:system-ui;
+  background:radial-gradient(circle at top,#ff5ad6,#502070,#0b0314);
+  color:white;
 }
-
 #app {
-  width: 720px;
-  height: 85%;
-  margin: auto;
-  margin-top: 40px;
-  background: rgba(8, 8, 20, 0.92);
-  border-radius: 14px;
-  display: flex;
-  flex-direction: column;
-  box-shadow: 0 0 50px #ff5ad688;
+  width:720px;
+  margin:20px auto;
+  background:rgba(8,8,20,.92);
+  border-radius:14px;
+  box-shadow:0 0 50px #ff5ad688;
+  padding:10px;
+  display:flex;
+  flex-direction:column;
+  gap:10px;
+  height:90vh;
 }
-
-#chat {
-  flex: 1;
-  padding: 12px;
-  overflow-y: auto;
+#topbar {
+  display:flex;
+  align-items:center;
+  justify-content:space-between;
 }
-
-.msg {
-  margin-bottom: 10px;
+#connection {
+  font-size:20px;
+  font-weight:bold;
+  transition:color 0.5s, opacity 0.5s;
 }
-
-.name {
-  color: #ff90ff;
-  font-weight: bold;
+@keyframes pulse {
+  0%,100% {opacity:1;}
+  50% {opacity:0.2;}
 }
-
-img {
-  max-width: 280px;
-  border-radius: 10px;
-  margin-top: 6px;
-  box-shadow: 0 0 15px #ff5ad655;
-}
-
 #controls {
-  display: flex;
-  gap: 8px;
-  padding: 10px;
+  display:flex;
+  gap:6px;
+  align-items:center;
+  flex-wrap:wrap;
 }
-
-input, button {
-  background: #1a0f2a;
-  border: none;
-  color: white;
-  padding: 8px;
-  border-radius: 6px;
+#chat {
+  flex:1;
+  padding:12px;
+  overflow-y:auto;
+  background:rgba(0,0,0,0.2);
+  border-radius:10px;
 }
-
+.msg {
+  margin-bottom:10px;
+}
+.name {
+  color:#ff90ff;
+  font-weight:bold;
+}
+img {
+  max-width:280px;
+  border-radius:10px;
+  margin-top:6px;
+  box-shadow:0 0 15px #ff5ad655;
+}
+input,button {
+  background:#1a0f2a;
+  border:1px solid #ff5ad688;
+  color:white;
+  padding:8px;
+  border-radius:8px;
+}
 button {
-  background: linear-gradient(135deg, #ff5ad6, #7a3cff);
+  background:linear-gradient(135deg,#ff5ad6,#7a3cff);
+  box-shadow:0 0 12px #ff5ad666;
+  cursor:pointer;
 }
-
-button:hover {
-  filter: brightness(1.15);
-  cursor: pointer;
+button.icon {
+  width:40px;
+  height:40px;
+  padding:0;
+  font-size:18px;
+}
+#preview {
+  padding:4px 8px;
+  font-size:13px;
+  color:#ffd1ff;
 }
 </style>
 </head>
-
 <body>
 <div id="app">
-  <div id="chat"></div>
+  <div id="topbar">
+    <div id="connection">Connection: ✅</div>
+  </div>
 
   <div id="controls">
+    <button class="icon" onclick="pickImage()">🖼️</button>
     <input id="name" placeholder="Name">
     <input id="text" placeholder="Message">
-    <input type="file" id="image">
+    <input type="file" id="img" accept="image/*" hidden>
     <button onclick="send()">Send</button>
   </div>
+
+  <div id="preview"></div>
+  <div id="chat"></div>
 </div>
 
 <script>
-const protocol = location.protocol === "https:" ? "wss" : "ws";
-const ws = new WebSocket(`${protocol}://${location.host}/ws`);
-let joined = false;
+const chat=document.getElementById("chat");
+const preview=document.getElementById("preview");
+const connectionEl=document.getElementById("connection");
+const nameInput=document.getElementById("name");
+const textInput=document.getElementById("text");
+const imgInput=document.getElementById("img");
 
-ws.onmessage = e => {
-  const msg = JSON.parse(e.data);
+let ws;
+let joined=false;
+let userName="";
+let pendingFile=null;
+let pendingType=null;
 
-  if (msg.type === "history") {
-    msg.messages.forEach(addMessage);
-  } else {
-    addMessage(msg);
-  }
-};
+// ===== CONNECTION TIMER (14:30) =====
+let countdown = 870; // 14m30s in seconds
+let countdownInterval;
 
-function addMessage(msg) {
-  const div = document.createElement("div");
-  div.className = "msg";
-
-  if (msg.type === "image") {
-    div.innerHTML = `<span class="name">${msg.name}:</span><br>
-                     <img src="${msg.content}">`;
-  } else {
-    div.innerHTML = `<span class="name">${msg.name}:</span> ${msg.content}`;
-  }
-
-  const chat = document.getElementById("chat");
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+function startCountdown(){
+  clearInterval(countdownInterval);
+  countdownInterval = setInterval(()=>{
+    countdown--;
+    if(countdown<=0){
+      clearInterval(countdownInterval);
+      connectionEl.textContent="Connection: 🚫 (Reload this page)";
+      connectionEl.style.color="#ff0000";
+      connectionEl.style.opacity=1;
+      connectionEl.style.animation="";
+    }
+  },1000);
 }
 
-function send() {
-  const name = document.getElementById("name");
-  const text = document.getElementById("text");
-  const image = document.getElementById("image");
+// ===== WEBSOCKET =====
+function initWS(){
+  ws=new WebSocket(`${location.protocol==='https:'?'wss':'ws'}://${location.host}/ws`);
 
-  if (!joined) {
-    ws.send(JSON.stringify({
-      type: "join",
-      name: name.value || "Anonymous"
-    }));
-    name.disabled = true;
-    joined = true;
+  ws.onopen = () => {
+    connectionEl.textContent = "Connection: ✅";
+    connectionEl.style.color="#00ff00";
+    connectionEl.style.opacity=1;
+    connectionEl.style.animation="";
+    countdown = 870; // reset countdown on connect
+    startCountdown();
+  };
+
+  ws.onmessage=e=>{
+    const msg=JSON.parse(e.data);
+    if(msg.type==="history") msg.messages.forEach(addMessage);
+    else addMessage(msg);
+  };
+
+  ws.onclose = () => {
+    clearInterval(countdownInterval);
+    connectionEl.textContent = "Connection: 🚫 (Reload this page)";
+    connectionEl.style.color="#ff0000";
+    connectionEl.style.opacity=1;
+    connectionEl.style.animation="";
+  };
+}
+initWS();
+
+function addMessage(msg){
+  const d=document.createElement("div"); d.className="msg";
+  if(msg.type==="image") d.innerHTML=`<span class="name">${msg.name}:</span><br><img src="${msg.content}">`;
+  else d.innerHTML=`<span class="name">${msg.name}:</span> ${msg.content}`;
+  chat.appendChild(d);
+  chat.scrollTop=chat.scrollHeight;
+}
+
+// ===== SEND =====
+function send(){
+  if(!ws || ws.readyState!==WebSocket.OPEN) return alert("WebSocket not connected yet!");
+  if(!joined){
+    userName=nameInput.value||"Anonymous";
+    ws.send(JSON.stringify({type:"join", name:userName}));
+    nameInput.disabled=true;
+    joined=true;
   }
 
-  if (image.files[0]) {
-    const reader = new FileReader();
-    reader.onload = () => {
-      ws.send(JSON.stringify({
-        type: "image",
-        content: reader.result
-      }));
-    };
-    reader.readAsDataURL(image.files[0]);
-    image.value = "";
+  // reset countdown on send
+  countdown = 870;
+
+  if(pendingFile){
+    ws.send(JSON.stringify({type:pendingType, content:pendingFile}));
+    pendingFile=null; pendingType=null;
+    preview.textContent="";
     return;
   }
 
-  if (text.value.trim()) {
-    ws.send(JSON.stringify({
-      type: "message",
-      content: text.value
-    }));
-    text.value = "";
+  if(textInput.value.trim()){
+    ws.send(JSON.stringify({type:"message", content:textInput.value}));
+    textInput.value="";
   }
 }
+
+// ===== IMAGE =====
+imgInput.onchange=()=>{
+  const file=imgInput.files[0];
+  const reader=new FileReader();
+  reader.onload=()=>{pendingFile=reader.result; pendingType="image"; preview.textContent="🖼️ Image ready to send";};
+  reader.readAsDataURL(file);
+};
+function pickImage(){imgInput.click();}
+
+// ===== CONNECTION STATUS RANDOM WARNING (⚠️) =====
+function randomWarning(){
+  const interval=Math.random()*10000+5000; // 5-15s
+  setTimeout(()=>{
+    if(ws && ws.readyState===WebSocket.OPEN){
+      connectionEl.textContent="Connection: ⚠️";
+      connectionEl.style.color="#ffff00";
+      connectionEl.style.animation="pulse 3s infinite";
+
+      const duration=Math.random()*3000+3000; // 3-6s pulse
+      setTimeout(()=>{
+        if(ws && ws.readyState===WebSocket.OPEN && countdown>0){
+          connectionEl.textContent="Connection: ✅";
+          connectionEl.style.color="#00ff00";
+          connectionEl.style.animation="";
+        }
+      }, duration);
+    }
+    randomWarning();
+  }, interval);
+}
+randomWarning();
 </script>
 </body>
 </html>
