@@ -38,7 +38,7 @@ async def websocket_handler(request):
                 data = json.loads(msg.data)
                 if data["type"] == "join":
                     users[ws] = data["name"]
-                elif data["type"] in ("message", "image"):
+                elif data["type"] in ("message", "image", "audio"):
                     payload = {
                         "type": data["type"],
                         "name": users.get(ws, "Anonymous"),
