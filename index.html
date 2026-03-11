@@ -23,7 +23,9 @@ html,body{
 }
 .msg{margin-bottom:10px}
 .name{color:#ff90ff;font-weight:bold}
-img{max-width:280px;border-radius:10px;margin-top:6px}
+.name.server{color:#00ff88;font-weight:bold}
+.fail-msg{color:#ff4444;font-size:14px;margin-top:2px;line-height:1.6}
+.fail-msg a{color:#ff9944;font-weight:bold;text-decoration:underline;cursor:pointer}
 input,button{
   background:#1a0f2a;border:1px solid #ff5ad688;
   color:white;padding:8px;border-radius:8px;
@@ -34,7 +36,7 @@ button{
 }
 button.icon{width:40px;height:40px;padding:0;font-size:18px}
 
-/* ==== SoapySounds Window ==== */
+/* SoapySounds Window */
 #soundWindow{
   position:absolute;top:120px;left:120px;
   width:300px;background:#0e0620;
@@ -62,7 +64,7 @@ button.icon{width:40px;height:40px;padding:0;font-size:18px}
     <button class="icon" onclick="pickImage()">🖼️</button>
     <input id="name" placeholder="Name">
     <input id="text" placeholder="Message">
-    <button onclick="send()">Send</button>
+    <button onclick="trySend()">Send</button>
     <input id="img" type="file" accept="image/*" hidden>
   </div>
 
@@ -78,164 +80,57 @@ button.icon{width:40px;height:40px;padding:0;font-size:18px}
   <div id="soundContent">
     <input type="file" id="audioFile" accept="audio/*"><br><br>
     <audio id="audioPlayer" controls style="width:100%"></audio><br><br>
-    <button onclick="sendAudio()">Send Audio</button>
+    <button onclick="trySend()">Send Audio</button>
   </div>
 </div>
+
 <script>
-/* ===== ELEMENT REFERENCES ===== */
 const chat = document.getElementById("chat");
-const connectionEl = document.getElementById("topbar");
+const NEW_URL = "https://soupychat.onrender.com";
 
-const nameInput = document.getElementById("name");
-const textInput = document.getElementById("text");
-const imgInput = document.getElementById("img");
+/* ── fake connect so status shows online ── */
+window.addEventListener("DOMContentLoaded", () => {
+  document.getElementById("topbar").textContent = "Connection: ✅";
+});
 
-const soundWindow = document.getElementById("soundWindow");
-const soundTitle = document.getElementById("soundTitle");
-const audioFile = document.getElementById("audioFile");
-const audioPlayer = document.getElementById("audioPlayer");
-
-/* ===== STATE ===== */
-let ws;
-let joined = false;
-let currentAudio = null;
-
-/* ===== CONNECT ===== */
-function connect() {
-  ws = new WebSocket(
-    `${location.protocol === "https:" ? "wss" : "ws"}://${location.host}/ws`
-  );
-
-  ws.onopen = () => {
-    connectionEl.textContent = "Connection: ✅";
-    connectionEl.style.color = "#00ff88";
-  };
-
-  ws.onclose = () => {
-    connectionEl.textContent = "Connection: 🚫 (Reload page)";
-    connectionEl.style.color = "#ff4444";
-  };
-
-  ws.onmessage = e => {
-    const msg = JSON.parse(e.data);
-    if (msg.type === "history") {
-      msg.messages.forEach(addMessage);
-    } else {
-      addMessage(msg);
-    }
-  };
+/* ── intercept every send attempt ── */
+function trySend() {
+  showFailMessage();
 }
-connect();
 
-/* ===== CHAT RENDER ===== */
-function addMessage(msg) {
+function showFailMessage() {
   const d = document.createElement("div");
   d.className = "msg";
-
-  if (msg.type === "image") {
-    d.innerHTML = `<span class="name">${msg.name}:</span><br>
-                   <img src="${msg.content}">`;
-  }
-  else if (msg.type === "audio") {
-    d.innerHTML = `
-      <span class="name">${msg.name}</span>
-      just sent an audio<br>
-      <button onclick='openAudio("${msg.content}")'>
-        🔊 Open in SoapySounds
-      </button>`;
-  }
-  else {
-    d.innerHTML = `<span class="name">${msg.name}:</span> ${msg.content}`;
-  }
-
+  d.innerHTML =
+    `<span class="name server">SERVER.SCS</span><br>` +
+    `<span class="fail-msg">` +
+    `Failed to send message! Soapychat is no longer being used. ` +
+    `Please go to: <a href="${NEW_URL}" target="_blank">${NEW_URL}</a> ` +
+    `to be able to talk and have access to new features.` +
+    `</span>`;
   chat.appendChild(d);
   chat.scrollTop = chat.scrollHeight;
 }
 
-/* ===== SEND TEXT ===== */
-function send() {
-  if (!joined) {
-    ws.send(JSON.stringify({
-      type: "join",
-      name: nameInput.value || "Anonymous"
-    }));
-    nameInput.disabled = true;
-    joined = true;
-  }
-
-  if (textInput.value.trim()) {
-    ws.send(JSON.stringify({
-      type: "message",
-      content: textInput.value
-    }));
-    textInput.value = "";
-  }
+/* ── image picker also triggers fail ── */
+function pickImage() {
+  showFailMessage();
 }
 
-/* ===== IMAGE ===== */
-function pickImage() { imgInput.click(); }
-
-imgInput.onchange = () => {
-  const r = new FileReader();
-  r.onload = () => {
-    ws.send(JSON.stringify({
-      type: "image",
-      content: r.result
-    }));
-  };
-  r.readAsDataURL(imgInput.files[0]);
-};
-
-/* ===== SoapySounds ===== */
-function openSoundWindow() {
-  soundWindow.style.display = "flex";
-}
-
-function closeSoundWindow() {
-  soundWindow.style.display = "none";
-}
-
-audioFile.onchange = () => {
-  const r = new FileReader();
-  r.onload = () => {
-    currentAudio = r.result;
-    audioPlayer.src = currentAudio;
-  };
-  r.readAsDataURL(audioFile.files[0]);
-};
-
-function sendAudio() {
-  if (!currentAudio) return;
-
-  ws.send(JSON.stringify({
-    type: "audio",
-    content: currentAudio
-  }));
-
-  closeSoundWindow();
-}
-
-function openAudio(data) {
-  openSoundWindow();
-  audioPlayer.src = data;
-  audioPlayer.play();
-}
-
-/* ===== DRAG WINDOW ===== */
+/* ── SoapySounds drag ── */
+const soundWindow = document.getElementById("soundWindow");
+const soundTitle  = document.getElementById("soundTitle");
 let drag = false, dx = 0, dy = 0;
 
-soundTitle.onmousedown = e => {
-  drag = true;
-  dx = e.offsetX;
-  dy = e.offsetY;
-};
+function openSoundWindow()  { soundWindow.style.display = "flex"; }
+function closeSoundWindow() { soundWindow.style.display = "none"; }
 
-document.onmousemove = e => {
+soundTitle.onmousedown = e => { drag = true; dx = e.offsetX; dy = e.offsetY; };
+document.onmousemove   = e => {
   if (!drag) return;
   soundWindow.style.left = (e.pageX - dx) + "px";
   soundWindow.style.top  = (e.pageY - dy) + "px";
 };
-
 document.onmouseup = () => drag = false;
 </script>
 </body>
